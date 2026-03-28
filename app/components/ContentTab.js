@@ -1,8 +1,9 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { PLATFORMS, PLATFORM_STYLES, CONTENT_DATA, RECENT_DATES } from '../data/mockData';
+import { RECENT_DATES } from '../data/mockData';
 import { SiTiktok, SiXiaohongshu, SiBilibili, SiSinaweibo, SiWechat } from 'react-icons/si';
 import { Video } from 'lucide-react';
+import { PLATFORM_STYLES } from '../../lib/platform-config.mjs';
 
 function formatDate(date) {
   const d = new Date(date);
@@ -34,11 +35,12 @@ function isSameDay(d1, d2) {
     a.getDate() === b.getDate();
 }
 
-export default function ContentTab({ categoryId }) {
+export default function ContentTab({ contents, platformOptions }) {
   const [activePlatform, setActivePlatform] = useState('all');
   const [activeDate, setActiveDate] = useState(RECENT_DATES[RECENT_DATES.length - 1]);
 
-  const allContents = CONTENT_DATA[categoryId] || CONTENT_DATA['claude'];
+  const allContents = useMemo(() => contents || [], [contents]);
+  const effectivePlatform = platformOptions.some((item) => item.id === activePlatform) ? activePlatform : 'all';
 
   // 统计每天的内容数量（用于日期卡片展示）
   const dateCountMap = useMemo(() => {
@@ -54,20 +56,28 @@ export default function ContentTab({ categoryId }) {
   const filteredContents = useMemo(() => {
     return allContents.filter(item => {
       const dateMatch = isSameDay(item.date, activeDate);
-      const platformMatch = activePlatform === 'all' || item.platform === activePlatform;
+      const platformMatch = effectivePlatform === 'all' || item.platform === effectivePlatform;
       return dateMatch && platformMatch;
     });
-  }, [allContents, activeDate, activePlatform]);
+  }, [allContents, activeDate, effectivePlatform]);
+
+  function getStatLabels(item) {
+    return item.statLabels || {
+      likes: '点赞',
+      comments: '评论',
+      shares: '转发',
+    };
+  }
 
   return (
     <div>
       {/* 平台筛选 */}
       <div className="platform-filter">
         <span className="platform-label">平台</span>
-        {PLATFORMS.map(p => (
+        {platformOptions.map(p => (
           <button
             key={p.id}
-            className={`platform-tag ${activePlatform === p.id ? 'active' : ''}`}
+            className={`platform-tag ${effectivePlatform === p.id ? 'active' : ''}`}
             onClick={() => setActivePlatform(p.id)}
           >
             {p.id !== 'all' && <span className="platform-icon" style={{ display: 'flex', alignItems: 'center' }}>{PLATFORM_ICONS[p.id]}</span>}
@@ -121,6 +131,7 @@ export default function ContentTab({ categoryId }) {
         <div className="content-grid">
           {filteredContents.map(item => {
             const style = PLATFORM_STYLES[item.platform] || {};
+            const statLabels = getStatLabels(item);
             return (
               <div key={item.id} className="content-card">
                 <div className="content-card-header">
@@ -152,13 +163,13 @@ export default function ContentTab({ categoryId }) {
                 <div className="content-snippet">{item.snippet}</div>
                 <div className="content-stats">
                   <span className="stat-item">
-                    ❤️ <span className="stat-value">{formatNumber(item.likes)}</span>
+                    {statLabels.likes} <span className="stat-value">{formatNumber(item.likes)}</span>
                   </span>
                   <span className="stat-item">
-                    💬 <span className="stat-value">{formatNumber(item.comments)}</span>
+                    {statLabels.comments} <span className="stat-value">{formatNumber(item.comments)}</span>
                   </span>
                   <span className="stat-item">
-                    🔁 <span className="stat-value">{formatNumber(item.shares)}</span>
+                    {statLabels.shares} <span className="stat-value">{formatNumber(item.shares)}</span>
                   </span>
                 </div>
               </div>

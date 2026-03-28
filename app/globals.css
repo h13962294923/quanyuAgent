@@ -158,6 +158,46 @@ body {
   color: var(--accent-light);
 }
 
+.category-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.category-item:hover .category-actions,
+.category-item.active .category-actions {
+  opacity: 1;
+}
+
+.category-action-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 3px 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.category-action-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-light);
+}
+
+.category-action-btn.danger:hover {
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #ef4444;
+}
+
+.sidebar-empty-state {
+  padding: 16px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .add-category-btn {
   margin: 8px;
   padding: 10px;
@@ -1088,6 +1128,19 @@ body {
 .empty-text {
   font-size: 14px;
   margin-bottom: 16px;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.empty-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-muted);
 }
 
 /* Hot rank badge */

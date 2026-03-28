@@ -1,8 +1,8 @@
 'use client';
 import { useState } from 'react';
-import { PLATFORM_STYLES } from '../data/mockData';
 import { SiTiktok, SiXiaohongshu, SiBilibili, SiSinaweibo, SiWechat } from 'react-icons/si';
 import { Video } from 'lucide-react';
+import { PLATFORM_STYLES } from '../../lib/platform-config.mjs';
 
 const ALL_PLATFORMS = [
   { id: 'douyin', name: '抖音', desc: '短视频' },
@@ -16,7 +16,7 @@ const ALL_PLATFORMS = [
 const PLATFORM_NAMES = { douyin: '抖音', xiaohongshu: '小红书', bilibili: 'B站', weibo: '微博', wechat: '公众号', shipin: '视频号' };
 const PLATFORM_ICONS = { douyin: <SiTiktok />, xiaohongshu: <SiXiaohongshu />, bilibili: <SiBilibili />, weibo: <SiSinaweibo />, wechat: <SiWechat />, shipin: <Video size={14} /> };
 
-export default function SettingsTab({ categoryId, initialData }) {
+export default function SettingsTab({ categoryId, initialData, onSaveSettings, saving }) {
   const [enabledPlatforms, setEnabledPlatforms] = useState(initialData?.platforms || []);
   const [keywords, setKeywords] = useState(initialData?.keywords || []);
   const [bloggers, setBloggers] = useState(initialData?.bloggers || []);
@@ -57,12 +57,26 @@ export default function SettingsTab({ categoryId, initialData }) {
     setBloggers(prev => prev.filter(b => b.id !== id));
   }
 
+  async function handleSave() {
+    if (!onSaveSettings) {
+      return;
+    }
+
+    try {
+      await onSaveSettings({
+        platforms: enabledPlatforms,
+        keywords,
+        bloggers,
+      });
+    } catch {}
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div className="section-title">⚙️ 监控设置</div>
-        <button className="btn btn-primary">
-          💾 保存设置
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+          {saving ? '⏳ 保存中...' : '💾 保存设置'}
         </button>
       </div>
 
@@ -216,19 +230,19 @@ export default function SettingsTab({ categoryId, initialData }) {
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>每天自动运行一次</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                每天 08:00 自动采集内容并生成选题分析报告
+                第一版先支持手动运行公众号采集，自动计划后续接入
               </div>
             </div>
             <div style={{
-              background: 'var(--green-bg)',
-              border: '1px solid rgba(16,185,129,0.25)',
-              color: 'var(--green)',
+              background: 'rgba(245,158,11,0.12)',
+              border: '1px solid rgba(245,158,11,0.25)',
+              color: 'var(--orange)',
               padding: '6px 14px',
               borderRadius: 8,
               fontSize: 13,
               fontWeight: 600,
             }}>
-              🟢 已启用
+              🟡 手动运行
             </div>
           </div>
         </div>
