@@ -49,6 +49,25 @@ test('buildWechatSearchPayload creates the fixed upstream request body', () => {
   });
 });
 
+test('buildWechatSearchPayload accepts custom period for backfill mode', () => {
+  assert.deepEqual(buildWechatSearchPayload({
+    keyword: 'AI 编程',
+    apiKey: 'secret-key',
+    period: 7,
+  }), {
+    kw: 'AI 编程',
+    any_kw: '',
+    ex_kw: '',
+    period: 7,
+    page: 1,
+    sort_type: 1,
+    mode: 1,
+    type: 1,
+    verifycode: '',
+    key: 'secret-key',
+  });
+});
+
 test('normalizeWechatApiArticle maps upstream data into local article shape', () => {
   const article = normalizeWechatApiArticle({
     categoryId: 'claude',
@@ -342,6 +361,109 @@ test('runWechatCollection skips upstream calls when today already has data', asy
   }), true);
 });
 
+test('hasWechatArticlesOnDate supports unix timestamp publish_time', () => {
+  const db = new Database(':memory:');
+  initializeDatabase(db);
+  const today = dateKeyDaysAgo(0);
+  const now = new Date();
+  const publishUnixSeconds = Math.floor(new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    9,
+    0,
+    0,
+  ).getTime() / 1000);
+
+  upsertWechatArticles(db, [{
+    category_id: 'claude',
+    keyword: 'A',
+    title: '时间戳文章',
+    url: 'https://mp.weixin.qq.com/s/unix-ts-article',
+    short_link: '',
+    content: '时间戳正文',
+    snippet: '时间戳正文',
+    avatar: '',
+    publish_time: `${publishUnixSeconds}.0`,
+    update_time: `${publishUnixSeconds}.0`,
+    wx_name: '时间戳号',
+    wx_id: 'wx-ts',
+    ghid: 'gh-ts',
+    read_count: 1,
+    praise_count: 1,
+    looking_count: 1,
+    ip_wording: '',
+    classify: '',
+    is_original: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }]);
+
+  assert.equal(hasWechatArticlesOnDate(db, {
+    categoryId: 'claude',
+    date: today,
+  }), true);
+});
+
+test('runWechatCollection backfill mode does not skip when today already has data', async () => {
+  const db = new Database(':memory:');
+  initializeDatabase(db);
+  const today = dateKeyDaysAgo(0);
+  let fetchCalls = 0;
+
+  saveCategorySettings(db, {
+    categoryId: 'claude',
+    platforms: ['wechat'],
+    keywords: ['A'],
+    bloggers: [],
+  });
+
+  upsertWechatArticles(db, [{
+    category_id: 'claude',
+    keyword: 'A',
+    title: '已有文章',
+    url: 'https://mp.weixin.qq.com/s/already-has-data',
+    short_link: '',
+    content: '今天已有',
+    snippet: '今天已有',
+    avatar: '',
+    publish_time: `${today} 09:00:00`,
+    update_time: `${today} 09:00:00`,
+    wx_name: '已有号',
+    wx_id: 'wx-exist',
+    ghid: 'gh-exist',
+    read_count: 1,
+    praise_count: 1,
+    looking_count: 1,
+    ip_wording: '',
+    classify: '',
+    is_original: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }]);
+
+  const result = await runWechatCollection({
+    db,
+    categoryId: 'claude',
+    apiKey: 'secret',
+    mode: 'backfill',
+    backfillDays: 7,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return {
+        ok: true,
+        async json() {
+          return { code: 0, cost_money: 0.01, data_number: 0, data: [] };
+        },
+      };
+    },
+  });
+
+  assert.equal(fetchCalls, 1);
+  assert.equal(result.mode, 'backfill');
+  assert.equal(result.collectionWindowDays, 7);
+});
+
 test('runWechatCollection only persists articles from today', async () => {
   const db = new Database(':memory:');
   initializeDatabase(db);
@@ -418,6 +540,105 @@ test('runWechatCollection only persists articles from today', async () => {
   assert.equal(result.totalFetched, 1);
   assert.equal(stored.length, 1);
   assert.equal(stored[0].url, 'https://mp.weixin.qq.com/s/today-article');
+});
+
+test('runWechatCollection backfill mode persists articles in backfill window', async () => {
+  const db = new Database(':memory:');
+  initializeDatabase(db);
+  const today = dateKeyDaysAgo(0);
+  const yesterday = dateKeyDaysAgo(1);
+  const oldDay = dateKeyDaysAgo(10);
+
+  saveCategorySettings(db, {
+    categoryId: 'claude',
+    platforms: ['wechat'],
+    keywords: ['回填测试'],
+    bloggers: [],
+  });
+
+  const result = await runWechatCollection({
+    db,
+    categoryId: 'claude',
+    apiKey: 'secret',
+    mode: 'backfill',
+    backfillDays: 7,
+    fetchImpl: async () => ({
+      ok: true,
+      async json() {
+        return {
+          code: 0,
+          cost_money: 0.01,
+          data_number: 3,
+          data: [
+            {
+              title: '今天文章',
+              url: 'https://mp.weixin.qq.com/s/today-article',
+              short_link: '',
+              content: '今天内容',
+              avatar: '',
+              publish_time: `${today} 08:00:00`,
+              update_time: `${today} 08:00:00`,
+              wx_name: '今日号',
+              wx_id: 'wx-today',
+              ghid: 'gh-today',
+              read: 10,
+              praise: 2,
+              looking: 1,
+              ip_wording: '',
+              classify: '',
+              is_original: 0,
+            },
+            {
+              title: '昨天文章',
+              url: 'https://mp.weixin.qq.com/s/yesterday-article',
+              short_link: '',
+              content: '昨天内容',
+              avatar: '',
+              publish_time: `${yesterday} 08:00:00`,
+              update_time: `${yesterday} 08:00:00`,
+              wx_name: '昨日号',
+              wx_id: 'wx-yesterday',
+              ghid: 'gh-yesterday',
+              read: 20,
+              praise: 3,
+              looking: 2,
+              ip_wording: '',
+              classify: '',
+              is_original: 0,
+            },
+            {
+              title: '历史文章',
+              url: 'https://mp.weixin.qq.com/s/old-article',
+              short_link: '',
+              content: '历史内容',
+              avatar: '',
+              publish_time: `${oldDay} 08:00:00`,
+              update_time: `${oldDay} 08:00:00`,
+              wx_name: '历史号',
+              wx_id: 'wx-old',
+              ghid: 'gh-old',
+              read: 5,
+              praise: 1,
+              looking: 0,
+              ip_wording: '',
+              classify: '',
+              is_original: 0,
+            },
+          ],
+        };
+      },
+    }),
+  });
+
+  const stored = listWechatArticlesByCategory(db, {
+    categoryId: 'claude',
+    platform: 'wechat',
+  });
+
+  assert.equal(result.collectionWindowDays, 7);
+  assert.equal(result.insertedArticles, 2);
+  assert.equal(result.totalFetched, 2);
+  assert.equal(stored.length, 2);
 });
 
 test('runWechatCollection throws when the local key is missing', async () => {

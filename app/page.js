@@ -324,20 +324,31 @@ export default function Home() {
     }
   }
 
-  async function handleCollectWechat() {
+  async function handleCollectWechat(options = {}) {
     if (!activeCategoryId) {
       return;
     }
 
+    const mode = options.mode === 'backfill' ? 'backfill' : 'daily';
+    const requestedBackfillDays = Number(options.backfillDays || 7);
     setCollecting(true);
     setStatusMessage({
       type: 'info',
-      text: '正在采集公众号内容...',
+      text: mode === 'backfill'
+        ? `正在回填近 ${requestedBackfillDays} 天公众号内容...`
+        : '正在采集公众号内容...',
     });
 
     try {
       const response = await fetch(`/api/categories/${encodeURIComponent(activeCategoryId)}/wechat-collect`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          mode,
+          backfillDays: mode === 'backfill' ? requestedBackfillDays : undefined,
+        }),
       });
       const data = await response.json();
 
@@ -345,13 +356,17 @@ export default function Home() {
         throw new Error(data.message || '采集失败');
       }
 
-      const skipSuffix = data.skippedKeywords > 0
+      const isBackfillMode = data.mode === 'backfill';
+      const modePrefix = isBackfillMode
+        ? `回填完成（近 ${data.collectionWindowDays || requestedBackfillDays} 天）`
+        : '采集完成';
+      const skipSuffix = !isBackfillMode && data.skippedKeywords > 0
         ? `，跳过 ${data.skippedKeywords} 个关键词（${data.skippedDate || '今日'}已有数据）`
         : '';
       await loadWechatArticles(activeCategoryId);
       setStatusMessage({
         type: 'success',
-        text: `采集完成：成功 ${data.successfulKeywords} 个关键词，失败 ${data.failedKeywords} 个，新增 ${data.insertedArticles} 条，更新 ${data.updatedArticles} 条${skipSuffix}。`,
+        text: `${modePrefix}：成功 ${data.successfulKeywords} 个关键词，失败 ${data.failedKeywords} 个，新增 ${data.insertedArticles} 条，更新 ${data.updatedArticles} 条${skipSuffix}。`,
       });
     } catch (error) {
       setStatusMessage({
@@ -361,6 +376,31 @@ export default function Home() {
     } finally {
       setCollecting(false);
     }
+  }
+
+  function handleBackfillCollect() {
+    if (!activeCategoryId || collecting) {
+      return;
+    }
+
+    const input = window.prompt('请输入回填天数（1-30）', '7');
+    if (input === null) {
+      return;
+    }
+
+    const days = Number(input.trim());
+    if (!Number.isInteger(days) || days < 1 || days > 30) {
+      setStatusMessage({
+        type: 'error',
+        text: '回填天数需在 1-30 之间',
+      });
+      return;
+    }
+
+    handleCollectWechat({
+      mode: 'backfill',
+      backfillDays: days,
+    });
   }
 
   return (
@@ -457,6 +497,9 @@ export default function Home() {
             <div className="header-actions">
               <button className="btn btn-ghost" onClick={handleCollectWechat} disabled={collecting || !activeCategoryId}>
                 <span>{collecting ? '⏳' : '▶'}</span> {collecting ? '采集中...' : '立即运行'}
+              </button>
+              <button className="btn btn-ghost" onClick={handleBackfillCollect} disabled={collecting || !activeCategoryId}>
+                <span>↺</span> 回填模式
               </button>
               <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
                 <span>+</span> 新增分类
