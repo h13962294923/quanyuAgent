@@ -10,12 +10,26 @@ import {
 } from '../lib/wechat-collector.mjs';
 import {
   initializeDatabase,
+  hasWechatArticlesOnDate,
   getCategorySettings,
   listWechatArticlesByCategory,
   saveCategorySettings,
   upsertWechatArticles,
 } from '../lib/content-monitor-db.mjs';
 import { runWechatCollection } from '../lib/wechat-collection-service.mjs';
+
+function toDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function dateKeyDaysAgo(daysAgo) {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  return toDateKey(date);
+}
 
 test('buildWechatSearchPayload creates the fixed upstream request body', () => {
   assert.deepEqual(buildWechatSearchPayload({
@@ -25,7 +39,7 @@ test('buildWechatSearchPayload creates the fixed upstream request body', () => {
     kw: 'AI 编程',
     any_kw: '',
     ex_kw: '',
-    period: 7,
+    period: 1,
     page: 1,
     sort_type: 1,
     mode: 1,
@@ -203,6 +217,8 @@ test('saveCategorySettings persists settings that can be loaded again', () => {
 test('runWechatCollection continues after one keyword fails', async () => {
   const db = new Database(':memory:');
   initializeDatabase(db);
+  const today = dateKeyDaysAgo(0);
+
   saveCategorySettings(db, {
     categoryId: 'claude',
     platforms: ['wechat'],
@@ -221,8 +237,8 @@ test('runWechatCollection continues after one keyword fails', async () => {
         short_link: '',
         content: '成功内容',
         avatar: '',
-        publish_time: '2026-03-28 08:00:00',
-        update_time: '2026-03-28 08:00:00',
+        publish_time: `${today} 08:00:00`,
+        update_time: `${today} 08:00:00`,
         wx_name: '成功号',
         wx_id: 'wx-success',
         ghid: 'gh-success',
@@ -265,6 +281,143 @@ test('runWechatCollection continues after one keyword fails', async () => {
     categoryId: 'claude',
     platform: 'wechat',
   }).length, 1);
+});
+
+test('runWechatCollection skips upstream calls when today already has data', async () => {
+  const db = new Database(':memory:');
+  initializeDatabase(db);
+  const today = dateKeyDaysAgo(0);
+  let fetchCalls = 0;
+
+  saveCategorySettings(db, {
+    categoryId: 'claude',
+    platforms: ['wechat'],
+    keywords: ['A', 'B'],
+    bloggers: [],
+  });
+
+  upsertWechatArticles(db, [{
+    category_id: 'claude',
+    keyword: 'A',
+    title: '已有文章',
+    url: 'https://mp.weixin.qq.com/s/already-has-data',
+    short_link: '',
+    content: '今天已有',
+    snippet: '今天已有',
+    avatar: '',
+    publish_time: `${today} 09:00:00`,
+    update_time: `${today} 09:00:00`,
+    wx_name: '已有号',
+    wx_id: 'wx-exist',
+    ghid: 'gh-exist',
+    read_count: 1,
+    praise_count: 1,
+    looking_count: 1,
+    ip_wording: '',
+    classify: '',
+    is_original: 0,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }]);
+
+  const result = await runWechatCollection({
+    db,
+    categoryId: 'claude',
+    apiKey: 'secret',
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      throw new Error('should not call fetch');
+    },
+  });
+
+  assert.equal(fetchCalls, 0);
+  assert.equal(result.insertedArticles, 0);
+  assert.equal(result.updatedArticles, 0);
+  assert.equal(result.skippedKeywords, 2);
+  assert.equal(result.skippedDate, today);
+  assert.equal(result.keywordResults.length, 0);
+  assert.equal(hasWechatArticlesOnDate(db, {
+    categoryId: 'claude',
+    date: today,
+  }), true);
+});
+
+test('runWechatCollection only persists articles from today', async () => {
+  const db = new Database(':memory:');
+  initializeDatabase(db);
+  const today = dateKeyDaysAgo(0);
+  const yesterday = dateKeyDaysAgo(1);
+
+  saveCategorySettings(db, {
+    categoryId: 'claude',
+    platforms: ['wechat'],
+    keywords: ['今日过滤'],
+    bloggers: [],
+  });
+
+  const result = await runWechatCollection({
+    db,
+    categoryId: 'claude',
+    apiKey: 'secret',
+    fetchImpl: async () => ({
+      ok: true,
+      async json() {
+        return {
+          code: 0,
+          cost_money: 0.01,
+          data_number: 2,
+          data: [
+            {
+              title: '今天文章',
+              url: 'https://mp.weixin.qq.com/s/today-article',
+              short_link: '',
+              content: '今天内容',
+              avatar: '',
+              publish_time: `${today} 08:00:00`,
+              update_time: `${today} 08:00:00`,
+              wx_name: '今日号',
+              wx_id: 'wx-today',
+              ghid: 'gh-today',
+              read: 10,
+              praise: 2,
+              looking: 1,
+              ip_wording: '',
+              classify: '',
+              is_original: 0,
+            },
+            {
+              title: '昨天文章',
+              url: 'https://mp.weixin.qq.com/s/yesterday-article',
+              short_link: '',
+              content: '昨天内容',
+              avatar: '',
+              publish_time: `${yesterday} 08:00:00`,
+              update_time: `${yesterday} 08:00:00`,
+              wx_name: '昨日号',
+              wx_id: 'wx-yesterday',
+              ghid: 'gh-yesterday',
+              read: 20,
+              praise: 3,
+              looking: 2,
+              ip_wording: '',
+              classify: '',
+              is_original: 0,
+            },
+          ],
+        };
+      },
+    }),
+  });
+
+  const stored = listWechatArticlesByCategory(db, {
+    categoryId: 'claude',
+    platform: 'wechat',
+  });
+
+  assert.equal(result.insertedArticles, 1);
+  assert.equal(result.totalFetched, 1);
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].url, 'https://mp.weixin.qq.com/s/today-article');
 });
 
 test('runWechatCollection throws when the local key is missing', async () => {

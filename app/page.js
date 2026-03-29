@@ -345,10 +345,13 @@ export default function Home() {
         throw new Error(data.message || '采集失败');
       }
 
+      const skipSuffix = data.skippedKeywords > 0
+        ? `，跳过 ${data.skippedKeywords} 个关键词（${data.skippedDate || '今日'}已有数据）`
+        : '';
       await loadWechatArticles(activeCategoryId);
       setStatusMessage({
         type: 'success',
-        text: `采集完成：成功 ${data.successfulKeywords} 个关键词，失败 ${data.failedKeywords} 个，新增 ${data.insertedArticles} 条，更新 ${data.updatedArticles} 条。`,
+        text: `采集完成：成功 ${data.successfulKeywords} 个关键词，失败 ${data.failedKeywords} 个，新增 ${data.insertedArticles} 条，更新 ${data.updatedArticles} 条${skipSuffix}。`,
       });
     } catch (error) {
       setStatusMessage({

@@ -132,8 +132,10 @@ export default function ContentTab({ contents, platformOptions }) {
           {filteredContents.map(item => {
             const style = PLATFORM_STYLES[item.platform] || {};
             const statLabels = getStatLabels(item);
-            return (
-              <div key={item.id} className="content-card">
+            const hasExternalUrl = typeof item.url === 'string' && item.url.trim().length > 0;
+            const externalUrl = hasExternalUrl ? item.url.trim() : '';
+            const cardBody = (
+              <>
                 <div className="content-card-header">
                   <div className="content-card-meta">
                     <span
@@ -172,7 +174,29 @@ export default function ContentTab({ contents, platformOptions }) {
                     {statLabels.shares} <span className="stat-value">{formatNumber(item.shares)}</span>
                   </span>
                 </div>
-              </div>
+              </>
+            );
+
+            if (hasExternalUrl) {
+              return (
+                <a
+                  key={item.id}
+                  href={externalUrl}
+                  className="content-card-link"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <article className="content-card">
+                    {cardBody}
+                  </article>
+                </a>
+              );
+            }
+
+            return (
+              <article key={item.id} className="content-card content-card-disabled">
+                {cardBody}
+              </article>
             );
           })}
         </div>

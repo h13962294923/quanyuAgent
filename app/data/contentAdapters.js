@@ -24,10 +24,14 @@ export function mapWechatArticleRowToContentItem(article) {
 
   return {
     id: `wechat-${article.id}`,
+    articleId: String(article.id),
+    categoryId: article.category_id || '',
     platform: 'wechat',
     author: article.wx_name || article.wx_id || '公众号',
     date: publishTime,
     title: article.title,
+    url: article.url || '',
+    content: article.content || '',
     snippet: article.snippet || article.content || '',
     likes: Number(article.read_count || 0),
     comments: Number(article.praise_count || 0),
