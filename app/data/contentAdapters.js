@@ -1,26 +1,7 @@
-function normalizePublishTime(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return new Date(value * 1000).toISOString();
-  }
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    const numeric = Number(trimmed);
-
-    if (trimmed && Number.isFinite(numeric) && /^\d+(\.\d+)?$/.test(trimmed)) {
-      return new Date(numeric * 1000).toISOString();
-    }
-
-    if (trimmed.includes(' ')) {
-      return trimmed.replace(' ', 'T');
-    }
-  }
-
-  return value;
-}
+import { normalizePublishTimeValue } from '../../lib/publish-time.mjs';
 
 export function mapWechatArticleRowToContentItem(article) {
-  const publishTime = normalizePublishTime(article.publish_time);
+  const publishTime = normalizePublishTimeValue(article.publish_time);
 
   return {
     id: `wechat-${article.id}`,

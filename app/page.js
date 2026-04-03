@@ -6,6 +6,7 @@ import ReportTab from './components/ReportTab';
 import SettingsTab from './components/SettingsTab';
 import { buildEnabledPlatformOptions, buildVisibleContents } from '../lib/dashboard-view.mjs';
 import { getDefaultSettings } from '../lib/default-settings.mjs';
+import { buildReportDateOptions, pickDefaultReportDate } from '../lib/report-view.mjs';
 
 const TABS = [
   { id: 'content', label: '📋 内容' },
@@ -41,8 +42,12 @@ export default function Home() {
   const [theme, setTheme] = useState('dark');
   const [settingsByCategory, setSettingsByCategory] = useState({});
   const [wechatArticlesByCategory, setWechatArticlesByCategory] = useState({});
+  const [reportsByCategory, setReportsByCategory] = useState({});
+  const [selectedReportDateByCategory, setSelectedReportDateByCategory] = useState({});
   const [savingSettings, setSavingSettings] = useState(false);
   const [collecting, setCollecting] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportGenerating, setReportGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
 
   useEffect(() => {
@@ -79,6 +84,26 @@ export default function Home() {
   const visibleContents = buildVisibleContents(wechatArticles);
   const visiblePlatforms = buildEnabledPlatformOptions(activeSettings.platforms || []);
   const activeCategoryColor = activeCategory?.color || '#6366f1';
+  const reportDateOptions = buildReportDateOptions(wechatArticles, new Date());
+  const preferredReportDate = selectedReportDateByCategory[activeCategoryId] || '';
+  const selectedReportDate = reportDateOptions.includes(preferredReportDate)
+    ? preferredReportDate
+    : pickDefaultReportDate(wechatArticles, new Date());
+  const currentReportResult = activeCategoryId && selectedReportDate
+    ? reportsByCategory[activeCategoryId]?.[selectedReportDate] || null
+    : null;
+
+  useEffect(() => {
+    if (activeTab !== 'report' || !activeCategoryId || !selectedReportDate) {
+      return;
+    }
+
+    if (reportsByCategory[activeCategoryId]?.[selectedReportDate]) {
+      return;
+    }
+
+    loadTopicReport(activeCategoryId, selectedReportDate);
+  }, [activeTab, activeCategoryId, selectedReportDate, reportsByCategory]);
 
   async function loadCategories(preferredCategoryId = '') {
     try {
@@ -154,6 +179,84 @@ export default function Home() {
         type: 'error',
         text: error instanceof Error ? error.message : '加载公众号内容失败',
       });
+    }
+  }
+
+  async function loadTopicReport(categoryId, reportDate) {
+    try {
+      setReportLoading(true);
+      const response = await fetch(`/api/categories/${encodeURIComponent(categoryId)}/reports?date=${encodeURIComponent(reportDate)}`, {
+        cache: 'no-store',
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || '加载报告失败');
+      }
+
+      setReportsByCategory((prev) => ({
+        ...prev,
+        [categoryId]: {
+          ...(prev[categoryId] || {}),
+          [reportDate]: data,
+        },
+      }));
+    } catch (error) {
+      setStatusMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : '加载报告失败',
+      });
+    } finally {
+      setReportLoading(false);
+    }
+  }
+
+  async function handleGenerateTopicReport({ force = false } = {}) {
+    if (!activeCategoryId || !selectedReportDate) {
+      return;
+    }
+
+    try {
+      setReportGenerating(true);
+      setStatusMessage({
+        type: 'info',
+        text: force ? '正在重新生成报告...' : '正在生成报告...',
+      });
+
+      const response = await fetch(`/api/categories/${encodeURIComponent(activeCategoryId)}/reports`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          date: selectedReportDate,
+          force,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || '生成报告失败');
+      }
+
+      setReportsByCategory((prev) => ({
+        ...prev,
+        [activeCategoryId]: {
+          ...(prev[activeCategoryId] || {}),
+          [selectedReportDate]: data,
+        },
+      }));
+      setStatusMessage({
+        type: 'success',
+        text: force ? '报告已重新生成' : '报告生成完成',
+      });
+    } catch (error) {
+      setStatusMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : '生成报告失败',
+      });
+    } finally {
+      setReportGenerating(false);
     }
   }
 
@@ -269,6 +372,16 @@ export default function Home() {
         delete next[category.id];
         return next;
       });
+      setReportsByCategory((prev) => {
+        const next = { ...prev };
+        delete next[category.id];
+        return next;
+      });
+      setSelectedReportDateByCategory((prev) => {
+        const next = { ...prev };
+        delete next[category.id];
+        return next;
+      });
       setActiveCategoryId((currentCategoryId) => (
         currentCategoryId === category.id
           ? data.nextCategoryId || ''
@@ -364,6 +477,10 @@ export default function Home() {
         ? `，跳过 ${data.skippedKeywords} 个关键词（${data.skippedDate || '今日'}已有数据）`
         : '';
       await loadWechatArticles(activeCategoryId);
+      setReportsByCategory((prev) => ({
+        ...prev,
+        [activeCategoryId]: {},
+      }));
       setStatusMessage({
         type: 'success',
         text: `${modePrefix}：成功 ${data.successfulKeywords} 个关键词，失败 ${data.failedKeywords} 个，新增 ${data.insertedArticles} 条，更新 ${data.updatedArticles} 条${skipSuffix}。`,
@@ -561,7 +678,35 @@ export default function Home() {
             <ContentTab contents={visibleContents} platformOptions={visiblePlatforms} />
           )}
           {activeTab === 'report' && activeCategoryId && (
-            <ReportTab />
+            <ReportTab
+              categoryId={activeCategoryId}
+              availableDates={reportDateOptions}
+              selectedDate={selectedReportDate}
+              reportResult={currentReportResult}
+              loading={reportLoading}
+              generating={reportGenerating}
+              onSelectDate={(dateKey) => {
+                setSelectedReportDateByCategory((prev) => ({
+                  ...prev,
+                  [activeCategoryId]: dateKey,
+                }));
+              }}
+              onGenerate={() => handleGenerateTopicReport({ force: false })}
+              onRegenerate={() => handleGenerateTopicReport({ force: true })}
+              articleCountByDate={wechatArticles.reduce((accumulator, item) => {
+                const parsed = new Date(item.date);
+
+                if (Number.isNaN(parsed.getTime())) {
+                  return accumulator;
+                }
+
+                const key = `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+                return {
+                  ...accumulator,
+                  [key]: (accumulator[key] || 0) + 1,
+                };
+              }, {})}
+            />
           )}
           {activeTab === 'settings' && activeCategoryId && (
             <SettingsTab
